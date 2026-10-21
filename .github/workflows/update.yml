@@ -1,0 +1,57 @@
+name: ҮЦТХТ төвлөрлийн тайлан шинэчлэх
+
+on:
+  schedule:
+    - cron: "0 2 * * *"      # өдөр бүр 02:00 UTC (Улаанбаатарт 10:00)
+  workflow_dispatch:          # гараар ажиллуулах товч
+    inputs:
+      scale:
+        description: "PNG нягтрал (3 = 3240px өргөн)"
+        default: "3"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: uctht-update
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Системийн багцууд (pdftotext, фонт)
+        run: sudo apt-get update && sudo apt-get install -y poppler-utils fonts-noto-core
+
+      - name: Python багцууд + Chromium
+        run: |
+          pip install -r requirements.txt
+          python -m playwright install --with-deps chromium
+
+      - name: Шинэ тайлан татах, Excel шинэчлэх, инфографик үүсгэх
+        id: run
+        run: python run_pipeline.py --scale "${{ github.event.inputs.scale || '3' }}"
+
+      - name: Үр дүнг commit хийх
+        if: steps.run.outputs.new != ''
+        run: |
+          git config user.name  "uctht-bot"
+          git config user.email "uctht-bot@users.noreply.github.com"
+          git add data pdfs output
+          git commit -m "Шинэ тайлан: ${{ steps.run.outputs.new }}"
+          git push
+
+      - name: Инфографик artifact болгох
+        if: steps.run.outputs.new != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: infographic
+          path: output/*.png
